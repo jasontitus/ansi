@@ -100,3 +100,21 @@ func TestWritePropagatesDeferredResetError(t *testing.T) {
 		t.Fatalf("Close = %v; want retained ErrClosedPipe", err)
 	}
 }
+
+func TestWritePreservesInputBytesAcrossChunks(t *testing.T) {
+	for _, input := range [][]byte{
+		[]byte("你好"),
+		{'\x1b', 0xff, 'm'},
+	} {
+		var sink bytes.Buffer
+		w := Writer{Forward: &sink}
+		for _, b := range input {
+			if n, err := w.Write([]byte{b}); n != 1 || err != nil {
+				t.Fatalf("Write = (%d, %v)", n, err)
+			}
+		}
+		if !bytes.Equal(sink.Bytes(), input) {
+			t.Fatalf("output %q; want original bytes %q", sink.Bytes(), input)
+		}
+	}
+}

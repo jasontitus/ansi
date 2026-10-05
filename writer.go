@@ -13,7 +13,6 @@ type Writer struct {
 	ansiseq    bytes.Buffer
 	lastseq    bytes.Buffer
 	seqchanged bool
-	runeBuf    []byte
 	err        error
 }
 
@@ -25,6 +24,8 @@ func (w *Writer) Write(b []byte) (int, error) {
 	}
 	sequenceStart := -w.ansiseq.Len()
 	for i, c := range string(b) {
+		_, size := utf8.DecodeRune(b[i:])
+		chunk := b[i : i+size]
 		if c == Marker {
 			// ANSI escape sequence
 			if w.ansiseq.Len() == 0 {
@@ -32,9 +33,9 @@ func (w *Writer) Write(b []byte) (int, error) {
 			}
 			w.ansi = true
 			w.seqchanged = true
-			_, _ = w.ansiseq.WriteRune(c)
+			_, _ = w.ansiseq.Write(chunk)
 		} else if w.ansi {
-			_, _ = w.ansiseq.WriteRune(c)
+			_, _ = w.ansiseq.Write(chunk)
 			if IsTerminator(c) {
 				// ANSI sequence terminated
 				w.ansi = false
@@ -55,21 +56,13 @@ func (w *Writer) Write(b []byte) (int, error) {
 					if written < 0 {
 						written = 0
 					}
-					_, size := utf8.DecodeRune(b[i:])
-					if written > i+size {
-						written = i + size
-					}
 					return written, err
 				}
 			}
 		} else {
-			n, err := w.writeRune(c)
+			n, err := w.writeBytes(chunk)
 			if err != nil {
 				w.err = err
-				_, size := utf8.DecodeRune(b[i:])
-				if n > size {
-					n = size
-				}
 				return i + n, err
 			}
 		}
@@ -78,13 +71,9 @@ func (w *Writer) Write(b []byte) (int, error) {
 	return len(b), nil
 }
 
-func (w *Writer) writeRune(r rune) (int, error) {
-	if w.runeBuf == nil {
-		w.runeBuf = make([]byte, utf8.UTFMax)
-	}
-	n := utf8.EncodeRune(w.runeBuf, r)
-	written, err := w.Forward.Write(w.runeBuf[:n])
-	if err == nil && written < n {
+func (w *Writer) writeBytes(b []byte) (int, error) {
+	written, err := w.Forward.Write(b)
+	if err == nil && written < len(b) {
 		err = io.ErrShortWrite
 	}
 	return written, err
